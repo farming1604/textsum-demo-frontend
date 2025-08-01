@@ -97,3 +97,21 @@ def extract_entities(
         entities = []
 
     return entities
+
+def generate_questions(text: str, selected_entities: list[str]) -> str:
+    # If no entities are selected, return a warning message
+    if not selected_entities:
+        return "⚠️ No entities selected. Please extract and select entities before generating questions."
+
+    questions = []
+    for entity in selected_entities:
+        # Extract the entity name by removing the type in parentheses
+        name = entity.split(" (")[0]
+
+        # Append some mock example questions for each entity
+        questions.append(f"❓ What is the role of {name} in the text?")
+        questions.append(f"❓ Why is {name} mentioned?")
+        questions.append(f"❓ What happened to {name}?")
+
+    # Return all questions as a single string
+    return "\n".join(questions)
