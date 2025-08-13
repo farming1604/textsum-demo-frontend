@@ -1,4 +1,5 @@
 import httpx
+from httpx import Timeout
 import logging
 
 from app.config import settings
@@ -10,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 def _preprocess_entities(
     entities: list[str],
-) -> list[dict]:
+) -> list[Entity]:
     processed_entities = []
     for entity in entities:
         if not entity:
@@ -23,33 +24,70 @@ def _preprocess_entities(
         else:
             processed_entities.append(Entity(entity_name=entity.strip(), entity_type="Unknown"))
     
-    processed_entities_dict = [
-        {
-            "entity_name": entity.entity_name,
-            "entity_type": entity.entity_type
-        } for entity in processed_entities
+    return processed_entities
+
+def _preprocess_questions(
+    questions: str,
+) -> list[str]:
+    if not questions:
+        return []
+    questions = questions.split("\n\n")
+    questions = [
+        q.replace("❓", "").strip()
+        for q in questions
+    ]
+    questions = [
+        q.split("\n💬")[0].strip()
+        for q in questions
     ]
 
-    return processed_entities_dict
+    return questions
 
 def summarize_text(
     content: str,
     entities: list[str] = [],
+    questions: str = "",
+    model: str = "BARTpho",
+    max_new_tokens: int = 256,
     **kwargs,
 ) -> str:
-    logger.error("Starting text summarization")
-    logger.error(f"{ entities = }")
-    entities: list[dict] = _preprocess_entities(entities)
+    entities: list[Entity] = _preprocess_entities(entities)
+    questions: list[str] = _preprocess_questions(questions)
+
+    logger.error(f"Summarizing content with model {model}")
 
     json_request_body = {
         "content": content,
-        "entities": entities
+        "question_answer_pairs": [
+            {
+                "question": question,
+                "entity": {
+                    "entity_name": entity.entity_name,
+                    "entity_type": entity.entity_type
+                }
+            }
+            for question, entity in zip(questions, entities)
+        ],
+        "summarization_model_name": model,
+        "search_config": {
+            "kwargs": {
+                "max_new_tokens": max_new_tokens
+            }
+        }
     }
+
+    logger.error(f"Request body for summarization: {json_request_body}")
 
     try:
         response = httpx.post(
             url=settings.SUMMARIZATION_API_URL,
             json=json_request_body,
+            timeout=Timeout(
+                connect=settings.MAX_TIMEOUT_CONNECT,
+                read=settings.MAX_TIMEOUT_READ,
+                write=settings.MAX_TIMEOUT_WRITE,
+                pool=settings.MAX_TIMEOUT_POOL,
+            )
         )
 
         if response.status_code != 200:
@@ -79,6 +117,12 @@ def extract_entities(
         response = httpx.post(
             url=settings.EXTRACT_ENTITIES_API_URL,
             json=json_request_body,
+            timeout=Timeout(
+                connect=settings.MAX_TIMEOUT_CONNECT,
+                read=settings.MAX_TIMEOUT_READ,
+                write=settings.MAX_TIMEOUT_WRITE,
+                pool=settings.MAX_TIMEOUT_POOL,
+            )
         )
 
         if response.status_code != 200:
@@ -98,20 +142,46 @@ def extract_entities(
 
     return entities
 
-def generate_questions(text: str, selected_entities: list[str]) -> str:
-    # If no entities are selected, return a warning message
-    if not selected_entities:
-        return "⚠️ No entities selected. Please extract and select entities before generating questions."
+def generate_questions(
+    text: str,
+    selected_entities: list[str]
+) -> list[str]:
+    entities: list[Entity] = _preprocess_entities(selected_entities)
 
-    questions = []
-    for entity in selected_entities:
-        # Extract the entity name by removing the type in parentheses
-        name = entity.split(" (")[0]
+    json_request_body = {
+        "content": text,
+        "entities": [
+            {
+                "entity_name": entity.entity_name,
+                "entity_type": entity.entity_type
+            } for entity in entities
+        ]
+    }
 
-        # Append some mock example questions for each entity
-        questions.append(f"❓ What is the role of {name} in the text?")
-        questions.append(f"❓ Why is {name} mentioned?")
-        questions.append(f"❓ What happened to {name}?")
+    try:
+        response = httpx.post(
+            url=settings.QUESTION_GENERATION_API_URL,
+            json=json_request_body,
+            timeout=Timeout(
+                connect=settings.MAX_TIMEOUT_CONNECT,
+                read=settings.MAX_TIMEOUT_READ,
+                write=settings.MAX_TIMEOUT_WRITE,
+                pool=settings.MAX_TIMEOUT_POOL,
+            )
+        )
 
-    # Return all questions as a single string
-    return "\n".join(questions)
+        if response.status_code != 200:
+            raise ValueError(f"Error from question generation API: {response.text}")
+        
+        response_json = response.json()
+        questions = response_json.get("questions", [])
+        logger.error(f"Generated questions: {questions}")
+        questions = [
+            q['question']
+            for q in questions
+        ]
+
+        return questions
+    except Exception as e:
+        logger.error(f"Failed to generate questions: {e}")
+        return ["Error occurred while generating questions."]

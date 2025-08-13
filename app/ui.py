@@ -9,10 +9,28 @@ def build_interface():
             border: 1px solid #444;
             border-radius: 8px;
             padding: 10px;
-            height: 88%;
+            height: 648px;
             overflow-y: auto;
         }
-
+                   
+        .textsum-wrapper {
+            background-color: #2a2b35;
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 10px;
+            height: 648px;
+            overflow-y: auto;
+        }
+                
+        .questions-outputs-wrapper {
+            background-color: #2a2b35;
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 10px;
+            height: 470px;
+            overflow-y: auto;
+        }
+                   
         .gr-checkbox-group {
             display: flex !important;
             flex-direction: column !important;
@@ -52,17 +70,23 @@ def build_interface():
         .equal-height-row > div {
             display: flex;
             flex-direction: column;
+            flex: 1;
+            height: 100%;
+        }
+
+        .gr-column {
+            height: 100%;
         }
 
         .input-with-button {
             display: flex;
             flex-direction: column;
-            height: 100%;
         }
 
         .input-with-button .gr-button {
             margin-top: 12px;
             width: fit-content;
+            height: 600px;
         }
     """) as demo:
 
@@ -70,45 +94,56 @@ def build_interface():
 
         with gr.Row(elem_classes="equal-height-row"):
             with gr.Column(scale=1):
-                with gr.Group(elem_classes="input-with-button"):
+                with gr.Group(elem_classes="textsum-wrapper"):
                     input_text = gr.Textbox(
-                        label="Enter text to summarize",
+                        label="📝 Enter text to summarize",
                         placeholder="Paste or type your content...",
-                        lines=20,
+                        lines=28    ,
                     )
-                    extract_btn = gr.Button("📌 Extract Entities")
+                extract_btn = gr.Button("📌 Extract Entities")
 
-            with gr.Column(scale=1):
+            with gr.Column(scale=1.0):
                 with gr.Group(elem_classes="entity-scroll-wrapper"):
                     entity_list = gr.CheckboxGroup(
                         choices=[],
-                        label="Select important entities",
+                        label="🏷️ Select important entities",
                         visible=True,
                         elem_classes="gr-checkbox-group"
                     )
                 generate_btn = gr.Button("🧠 Generate Questions")
 
             with gr.Column(scale=1):
-                with gr.Group(elem_classes="input-with-button"):
-                    questions_output = gr.TextArea(
+                with gr.Group(elem_classes="questions-outputs-wrapper"):
+                    questions_output = gr.Textbox(
                         label="🧠 Generated Questions",
-                        interactive=False,
-                        lines=20,
-                        elem_classes="textbox-style"
+                        lines=19,
                     )
-                    summarize_btn = gr.Button("✂️ Summarize")
+                model_selector = gr.Dropdown(
+                    label="🤖 Choose a model for summarization",
+                    choices=["BARTpho", "ViT5", "Gemma 3"],
+                    value="BARTpho",
+                )
+                max_length_slider = gr.Slider(
+                    minimum=4,
+                    maximum=256,
+                    value=256,
+                    label="📏 Max output tokens",
+                    scale=1,
+                    interactive=True
+                )
+                summarize_btn = gr.Button("✂️ Summarize")
 
         with gr.Column():
             summary_output = gr.TextArea(
                 label="✂️ Summary Result",
                 interactive=False,
-                lines=10,
+                lines=6,
                 elem_classes="textbox-style"
             )
             clear_btn = gr.Button("🧹 Clear", variant="secondary", elem_classes="clear-button")
 
         def on_extract_entities(text):
-            entities: list[Entity] = extract_entities(text)[:5]
+            entities: list[Entity] = extract_entities(text)
             entity_choices = [
                 f"{entity.entity_name} ({entity.entity_type})"
                 for entity in entities
@@ -116,7 +151,13 @@ def build_interface():
             return gr.update(choices=entity_choices, value=[])
 
         def on_generate_questions(text, selected_entities):
-            return generate_questions(text, selected_entities)
+            questions: list[str] = generate_questions(text, selected_entities)
+            if not questions:
+                return ""
+            return "\n\n".join([
+                f"❓ {q}\n💬 {entity}"
+                for q, entity in zip(questions, selected_entities)
+            ])
 
         def on_clear():
             return "", gr.update(choices=[], value=[]), "", ""
@@ -129,7 +170,7 @@ def build_interface():
 
         summarize_btn.click(
             fn=summarize_text,
-            inputs=[input_text, entity_list],
+            inputs=[input_text, entity_list, questions_output, model_selector, max_length_slider],
             outputs=summary_output
         )
 
